@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	osuser "os/user"
 	"path"
 	"strconv"
@@ -245,6 +246,7 @@ func mainWithStatusCode() int {
 	forwardTCP := flag.String("forward-tcp", "", "if set, take a localport/remoteip@remoteport forwarding localhost@localport towards remoteip@remoteport")
 	usernameFromCliArg := flag.String("l", "", "if set, specifies the user to connect to on the remote host")
 	urlPathFromCliArg := flag.String("url-path", "", "the secret URL path on which the ssh3 server listens")
+	urlPortFromCliArg := flag.String("url-port", "", "the port on which the ssh3 server listens")
 
 	// enableQlog := flag.Bool("qlog", false, "output a qlog (in the same directory)")
 	flag.Parse()
@@ -409,6 +411,14 @@ func mainWithStatusCode() int {
 	}
 
 	urlHostname, urlPort := parsedUrl.Hostname(), parsedUrl.Port()
+
+	if *urlPortFromCliArg != "" {
+		if urlPort != "" {
+			log.Error().Msgf("the URL port is specified in both the -url-port (%s) CLI arg and in the remote host URL (%s)", *urlPortFromCliArg, urlPort)
+			return -1
+		}
+		urlPort = *urlPortFromCliArg
+	}
 
 	configHostname, configPort, configUser, configAuthMethods, err := ssh3.GetConfigForHost(urlHostname, sshConfig)
 	if err != nil {
@@ -824,7 +834,7 @@ func mainWithStatusCode() int {
 	channel, err := conv.OpenChannel("session", 30000, 0)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Could not open channel: %+v", err)
-		os.Exit(-1)
+		return -1
 	}
 
 	log.Debug().Msgf("opened new session channel")
@@ -867,7 +877,7 @@ func mainWithStatusCode() int {
 			windowSize, err := winsize.GetWinsize()
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Could not get window size: %+v", err)
-				os.Exit(-1)
+				return -1
 			}
 			err = channel.SendRequest(
 				&ssh3Messages.ChannelRequestMessage{
@@ -1021,7 +1031,7 @@ func mainWithStatusCode() int {
 		genericMessage, err := channel.NextMessage()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Could not get message: %+v\n", err)
-			os.Exit(-1)
+			return -1
 		}
 		switch message := genericMessage.(type) {
 		case *ssh3Messages.ChannelRequestMessage:
@@ -1070,5 +1080,7 @@ func mainWithStatusCode() int {
 }
 
 func main() {
+	signal.Ignore(syscall.SIGPIPE)
+
 	os.Exit(mainWithStatusCode())
 }
